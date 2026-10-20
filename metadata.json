@@ -1,0 +1,6 @@
+{
+  "name": "صوتك - محول النص العربي والعامي لصوت Gemini TTS",
+  "description": "تطبيق عصري مستوحى من فلاتر ماتيريال 3 لتحويل النص العربي المشكّل والعامية المصرية إلى أصوات بشرية طبيعية بنبرات متعددة وتصدير MP3 و WAV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
