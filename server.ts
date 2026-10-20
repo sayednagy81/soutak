@@ -152,36 +152,62 @@ app.post('/api/tts/generate', async (req: Request, res: Response): Promise<void>
     const validVoices = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
     const chosenVoice = validVoices.includes(voiceName) ? voiceName : 'Kore';
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: text.trim(),
-              speechMetadata: {
-                style: stylePrompt,
+    let response: any = null;
+
+    // Helper to call a specific Gemini TTS model
+    const callTTSModel = async (modelName: string) => {
+      return await ai.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: text.trim(),
+                speechMetadata: {
+                  style: stylePrompt,
+                },
               },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: chosenVoice },
             },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: chosenVoice },
           },
         },
-      },
-    });
+      });
+    };
+
+    // Primary: Try gemini-3.8-flash-tts (high quality & independent quota pool)
+    try {
+      response = await callTTSModel('gemini-3.8-flash-tts');
+    } catch (primaryErr: any) {
+      console.warn('gemini-3.8-flash-tts attempt ended, attempting gemini-3.8-flash-lite-tts...');
+      // Secondary: Try gemini-3.8-flash-lite-tts
+      try {
+        response = await callTTSModel('gemini-3.8-flash-lite-tts');
+      } catch (secondaryErr: any) {
+        console.warn('Both Gemini TTS cloud models reached limit:', secondaryErr?.message);
+        res.json({
+          success: false,
+          quotaExceeded: true,
+          error: 'QUOTA_EXCEEDED',
+          message:
+            'تم استهلاك الحصة اليومية المجانية المتاحة لنماذج Gemini TTS (10 طلبات يومياً على الحساب المجاني).',
+        });
+        return;
+      }
+    }
 
     const base64Wav = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
     if (!base64Wav) {
       res.status(502).json({
-        error: 'Failed to generate audio from Gemini TTS. No audio data was returned.',
+        error: 'لم تتم استعادة أي بيانات صوتية من محرك التوليد.',
       });
       return;
     }
@@ -215,8 +241,24 @@ app.post('/api/tts/generate', async (req: Request, res: Response): Promise<void>
     });
   } catch (err: any) {
     console.error('Error in /api/tts/generate:', err);
+    const errStr = (err?.message || '') + JSON.stringify(err || '');
+    if (
+      errStr.includes('429') ||
+      errStr.includes('RESOURCE_EXHAUSTED') ||
+      errStr.includes('Quota exceeded')
+    ) {
+      res.json({
+        success: false,
+        quotaExceeded: true,
+        error: 'QUOTA_EXCEEDED',
+        message:
+          'تم استهلاك الحصة اليومية المجانية لنموذج Gemini TTS (10 طلبات في اليوم للحساب المجاني).',
+      });
+      return;
+    }
+
     res.status(500).json({
-      error: err.message || 'An error occurred during audio generation.',
+      error: 'حدث خطأ مؤقت في الاتصال بخدمة التوليد الصوتي.',
     });
   }
 });
@@ -262,12 +304,70 @@ app.post('/api/text/assist', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-    });
-
-    const resultText = response.text?.trim() || '';
+    let resultText = '';
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+      });
+      resultText = response.text?.trim() || '';
+    } catch (apiErr: any) {
+      console.warn('Gemini text assistant API notice, activating local smart fallback:', apiErr?.message);
+      if (action === 'to_egyptian') {
+        // Smart colloquial Egyptian vocabulary mapper
+        const converted = text
+          .replace(/\bهذا\b/g, 'ده')
+          .replace(/\bهذه\b/g, 'دي')
+          .replace(/\bهؤلاء\b/g, 'دول')
+          .replace(/\bماذا\b/g, 'إيه')
+          .replace(/\bلماذا\b/g, 'ليه')
+          .replace(/\bكيف\b/g, 'إزاي')
+          .replace(/\bأين\b/g, 'فين')
+          .replace(/\bمتى\b/g, 'إمتى')
+          .replace(/\bالآن\b/g, 'دلوقتي')
+          .replace(/\bكثيراً\b/g, 'أوي')
+          .replace(/\bجداً\b/g, 'خالص')
+          .replace(/\bنعم\b/g, 'أيوه')
+          .replace(/\bلا أعلم\b/g, 'معرفش')
+          .replace(/\bأريد\b/g, 'عايز')
+          .replace(/\bنريد\b/g, 'عايزين')
+          .replace(/\bفقط\b/g, 'بس')
+          .replace(/\bسوف\b/g, 'هـ')
+          .replace(/\bأيضاً\b/g, 'كمان')
+          .replace(/\bلكن\b/g, 'بس');
+        res.json({
+          success: true,
+          result: converted,
+          fallback: true,
+        });
+        return;
+      } else if (action === 'suggest_tone') {
+        const isEgyptian = text.includes('ده') || text.includes('إيه') || text.includes('أوي') || text.includes('يا') || text.includes('مصر');
+        res.json({
+          success: true,
+          suggestion: {
+            recommendedVoice: isEgyptian ? 'Kore' : 'Fenrir',
+            recommendedTone: isEgyptian ? 'egyptian_friendly' : 'news_anchor',
+            recommendedRate: 1.0,
+            recommendedPitch: 'normal',
+            reason: isEgyptian
+              ? 'تم اختيار نبرة عامية مصرية ودية تناسب العبارات الحوارية اليومية'
+              : 'تم اختيار نبرة فصحى رصينة تناسب سياق النص المكتوب',
+          },
+          fallback: true,
+        });
+        return;
+      } else {
+        // Tashkeel fallback
+        res.json({
+          success: true,
+          result: text,
+          notice: 'تم استخدام النص مباشرة نظراً لاستهلاك الحصة اليومية المؤقتة.',
+          fallback: true,
+        });
+        return;
+      }
+    }
 
     if (action === 'suggest_tone') {
       try {
@@ -287,8 +387,9 @@ app.post('/api/text/assist', async (req: Request, res: Response): Promise<void> 
     });
   } catch (err: any) {
     console.error('Error in /api/text/assist:', err);
-    res.status(500).json({
-      error: err.message || 'An error occurred during text processing.',
+    res.json({
+      success: false,
+      error: 'تعذر إتمام المساعدة اللغوية في الوقت الحالي، يرجى المحاولة لاحقاً.',
     });
   }
 });

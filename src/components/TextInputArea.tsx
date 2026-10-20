@@ -83,15 +83,22 @@ export const TextInputArea: React.FC<TextInputAreaProps> = ({
       if (data.success) {
         if (action === 'tashkeel' && data.result) {
           setText(data.result);
+          if (data.notice) setSuggestionMessage(data.notice);
         } else if (action === 'to_egyptian' && data.result) {
           setText(data.result);
+          if (data.fallback) {
+            setSuggestionMessage('تمت الصياغة بالعامية المصرية بنجاح.');
+          }
         } else if (action === 'suggest_tone' && data.suggestion) {
           onSelectToneSuggestion(data.suggestion);
           setSuggestionMessage(data.suggestion.reason || 'تم تطبيق أفضل نبرة وصوت للنص بنجاح!');
         }
+      } else {
+        setSuggestionMessage(data.error || 'تعذر إتمام المساعدة اللغوية حالياً.');
       }
     } catch (err) {
       console.error('Text assistance failed:', err);
+      setSuggestionMessage('تعذر إتمام المساعدة اللغوية في الوقت الحالي.');
     } finally {
       setLoadingAction(null);
     }

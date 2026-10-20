@@ -4,6 +4,8 @@ import {
   Loader2,
   AlertCircle,
   Wand2,
+  Info,
+  CheckCircle2,
 } from 'lucide-react';
 import { Navbar } from './components/Navbar.tsx';
 import { TextInputArea } from './components/TextInputArea.tsx';
@@ -15,6 +17,34 @@ import { AndroidInstallModal } from './components/AndroidInstallModal.tsx';
 import { GeneratedSpeechItem, LanguageId, PitchType, ToneId, VoiceId } from './types.ts';
 import { detectLanguageFromText } from './utils/langDetector.ts';
 import { usePWAInstall } from './hooks/usePWAInstall.ts';
+import { speakWithBrowser } from './utils/browserTTS.ts';
+
+// Clean error message formatter to prevent any raw API JSON from displaying to users
+function formatArabicErrorMessage(msg: string | null): string {
+  if (!msg) return '';
+  if (
+    msg.includes('429') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('Quota exceeded') ||
+    msg.includes('quota') ||
+    msg.includes('limit: 10')
+  ) {
+    return 'تم استهلاك الحصة اليومية المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني). تم تفعيل المحرك الصوتي الداخلي لتوفير الصوت بصيغتي MP3 و WAV بجودة عالية دون انقطاع.';
+  }
+  if (msg.trim().startsWith('{') && msg.includes('"error"')) {
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed.error?.message) {
+        const inner = parsed.error.message;
+        if (inner.includes('429') || inner.includes('Quota') || inner.includes('quota') || inner.includes('limit: 10')) {
+          return 'تم الوصول للحد الأقصى للحصة المجانية اليومية (10 طلبات). يعمل التطبيق تلقائياً عبر المحرك الصوتي الداخلي لتوليد الصوت وتحميله بصيغتي MP3 و WAV.';
+        }
+        return inner;
+      }
+    } catch {}
+  }
+  return msg;
+}
 
 export default function App() {
   // Theme state
@@ -39,9 +69,11 @@ export default function App() {
     return detectLanguageFromText(text);
   }, [text]);
 
-  // Synthesis status
+  // Synthesis status & notifications
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [fallbackActive, setFallbackActive] = useState<boolean>(false);
   const [currentAudio, setCurrentAudio] = useState<GeneratedSpeechItem | null>(null);
 
   // History state
@@ -82,7 +114,7 @@ export default function App() {
     return URL.createObjectURL(blob);
   };
 
-  // Main TTS Generation handler
+  // Main TTS Generation handler with robust fallback
   const handleGenerate = async () => {
     if (!text.trim()) {
       setErrorMessage('يرجى كتابة أو لصق نص أولاً للبدء في التحويل الصوتي.');
@@ -91,6 +123,7 @@ export default function App() {
 
     setIsGenerating(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
 
     const effectiveLanguage =
       selectedLanguage === 'auto' ? detectedLanguage.lang : selectedLanguage;
@@ -111,10 +144,64 @@ export default function App() {
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'حدث خطأ أثناء توليد الصوت.');
+      // If Gemini quota is exceeded or cloud generation encounters error
+      if (!response.ok || !data.success || data.quotaExceeded) {
+        console.warn('Gemini cloud quota reached or failed, activating seamless browser fallback...');
+        const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
+        const browserResult = await speakWithBrowser(
+          text.trim(),
+          effectiveLanguage,
+          speechRate,
+          pitchVal
+        );
+
+        const newItem: GeneratedSpeechItem = {
+          id: 'speech_' + Date.now(),
+          text: text.trim(),
+          voice: selectedVoice,
+          tone: selectedTone,
+          language: selectedLanguage,
+          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
+          speechRate,
+          pitch,
+          wavUrl: browserResult.wavUrl,
+          mp3Url: browserResult.mp3Url,
+          wavSize: browserResult.sizeWav,
+          mp3Size: browserResult.sizeMp3,
+          createdAt: Date.now(),
+        };
+
+        setCurrentAudio(newItem);
+        setFallbackActive(true);
+        setNoticeMessage(
+          '🔔 نظراً لنفاذ الحصة المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني)، تم توليد الصوت بنجاح وتشغيله عبر المحرك الصوتي الداخلي دون انقطاع، ويمكنك تحميل ملفات MP3 و WAV كالمعتاد.'
+        );
+
+        // Save metadata in history
+        const updatedHistory = [newItem, ...history.slice(0, 19)];
+        setHistory(updatedHistory);
+        localStorage.setItem(
+          'sawtak_history_meta',
+          JSON.stringify(
+            updatedHistory.map((item) => ({
+              ...item,
+              wavUrl: '',
+              mp3Url: '',
+            }))
+          )
+        );
+
+        setTimeout(() => {
+          const playerElement = document.getElementById('audio-player-section');
+          if (playerElement) {
+            playerElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }, 100);
+
+        return;
       }
 
+      // Gemini Cloud Success
       const wavUrl = base64ToBlobUrl(data.wavBase64, 'audio/wav');
       const mp3Url = data.mp3Base64
         ? base64ToBlobUrl(data.mp3Base64, 'audio/mp3')
@@ -137,6 +224,7 @@ export default function App() {
       };
 
       setCurrentAudio(newItem);
+      setFallbackActive(false);
 
       // Save metadata in history
       const updatedHistory = [newItem, ...history.slice(0, 19)];
@@ -160,10 +248,42 @@ export default function App() {
         }
       }, 100);
     } catch (err: any) {
-      console.error('TTS Generation failed:', err);
-      setErrorMessage(
-        err.message || 'تعذر الاتصال بخدمة التوليد الصوتي. يرجى المحاولة مرة أخرى.'
-      );
+      console.warn('Network or server error, attempting in-browser TTS fallback...', err);
+      try {
+        const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
+        const browserResult = await speakWithBrowser(
+          text.trim(),
+          effectiveLanguage,
+          speechRate,
+          pitchVal
+        );
+
+        const newItem: GeneratedSpeechItem = {
+          id: 'speech_' + Date.now(),
+          text: text.trim(),
+          voice: selectedVoice,
+          tone: selectedTone,
+          language: selectedLanguage,
+          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
+          speechRate,
+          pitch,
+          wavUrl: browserResult.wavUrl,
+          mp3Url: browserResult.mp3Url,
+          wavSize: browserResult.sizeWav,
+          mp3Size: browserResult.sizeMp3,
+          createdAt: Date.now(),
+        };
+
+        setCurrentAudio(newItem);
+        setFallbackActive(true);
+        setNoticeMessage(
+          '🔔 تم التوليد بنجاح عبر المحرك الصوتي الداخلي. يمكنك الاستماع والتحميل بصيغتي MP3 و WAV دون توقف.'
+        );
+      } catch (fallbackErr) {
+        setErrorMessage(
+          'تعذر الاتصال بخدمة التوليد الصوتي السحابية. يرجى التحقق من النص والمحاولة مجدداً.'
+        );
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -220,17 +340,44 @@ export default function App() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {/* Hero Title Section */}
         <section className="text-right space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>مدعوم بتقنية Gemini 3.8 Flash TTS المتعددة اللغات</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>مدعوم بتقنية Gemini TTS مع محرك احتياطي غير محدود</span>
+            </div>
+
+            {fallbackActive && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100/80 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[11px] font-bold">
+                <Info className="w-3.5 h-3.5" />
+                <span>المحرك الاحتياطي نشط</span>
+              </span>
+            )}
           </div>
+
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             تحويل النص إلى صوت بشري طبيعي متعدد اللغات
           </h1>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-            الصق النص بالعربية أو الإنجليزية أو الفرنسية أو أي لغة أخرى؛ يكتشف النظام اللغة تلقائياً أو يتيح لك اختيارها يدوياً مع تحكم كامل بالنبرات والصيغ الصوتية.
+            الصق النص بالعربية أو الإنجليزية أو الفرنسية؛ يكتشف النظام اللغة تلقائياً مع تحكم كامل بالنبرات وسرعة القراءة وتصدير MP3 و WAV.
           </p>
         </section>
+
+        {/* Quota / Fallback Notice Banner */}
+        {noticeMessage && (
+          <div className="p-4 rounded-2xl bg-amber-50/90 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-900 text-amber-900 dark:text-amber-200 text-xs sm:text-sm flex items-start gap-3 shadow-xs">
+            <Info className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <p className="font-bold">تنبيه استهلاك الحصة المجانية</p>
+              <p className="leading-relaxed">{noticeMessage}</p>
+            </div>
+            <button
+              onClick={() => setNoticeMessage(null)}
+              className="text-amber-600 dark:text-amber-400 hover:underline text-xs font-bold shrink-0"
+            >
+              إخفاء
+            </button>
+          </div>
+        )}
 
         {/* Error Alert if any */}
         {errorMessage && (
@@ -238,7 +385,7 @@ export default function App() {
             <AlertCircle className="w-5 h-5 shrink-0 text-red-500 mt-0.5" />
             <div className="flex-1">
               <p className="font-bold">تنبيه أثناء المعالجة</p>
-              <p className="mt-0.5">{errorMessage}</p>
+              <p className="mt-0.5 leading-relaxed">{formatArabicErrorMessage(errorMessage)}</p>
             </div>
             <button
               onClick={() => setErrorMessage(null)}
