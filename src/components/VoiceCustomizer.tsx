@@ -1,18 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Mic,
   Sliders,
   Gauge,
-  Flame,
-  Radio,
-  Clapperboard,
-  BookOpen,
-  Zap,
-  GraduationCap,
-  MessageCircleHeart,
-  Sparkles,
   RotateCcw,
+  User,
   AudioWaveform,
+  ChevronDown,
 } from 'lucide-react';
 import { TONE_PRESETS, VOICES } from '../constants/presets.ts';
 import { PitchType, ToneId, VoiceId } from '../types.ts';
@@ -38,39 +32,12 @@ export const VoiceCustomizer: React.FC<VoiceCustomizerProps> = ({
   pitch,
   setPitch,
 }) => {
-  const [toneTab, setToneTab] = useState<'all' | 'egyptian' | 'classical' | 'multilingual'>('all');
-
-  // Helper to render icon for tone
-  const getToneIcon = (iconName: string) => {
-    switch (iconName) {
-      case 'MessageCircleHeart':
-        return <MessageCircleHeart className="w-4 h-4 text-emerald-500" />;
-      case 'Flame':
-        return <Flame className="w-4 h-4 text-amber-500" />;
-      case 'Sparkles':
-        return <Sparkles className="w-4 h-4 text-pink-500" />;
-      case 'Radio':
-        return <Radio className="w-4 h-4 text-blue-500" />;
-      case 'Clapperboard':
-        return <Clapperboard className="w-4 h-4 text-purple-500" />;
-      case 'BookOpen':
-        return <BookOpen className="w-4 h-4 text-teal-500" />;
-      case 'Zap':
-        return <Zap className="w-4 h-4 text-orange-500" />;
-      case 'GraduationCap':
-        return <GraduationCap className="w-4 h-4 text-cyan-500" />;
-      default:
-        return <AudioWaveform className="w-4 h-4 text-blue-500" />;
-    }
-  };
-
-  const filteredTones =
-    toneTab === 'all'
-      ? TONE_PRESETS
-      : TONE_PRESETS.filter((t) => t.category === toneTab);
+  // Current active selections for metadata preview
+  const currentVoice = VOICES.find((v) => v.id === selectedVoice) || VOICES[0];
+  const currentTone = TONE_PRESETS.find((t) => t.id === selectedTone) || TONE_PRESETS[0];
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/90 dark:border-slate-800 shadow-sm transition-all space-y-6">
+    <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/90 dark:border-slate-800 shadow-sm transition-all space-y-5">
       {/* 1. Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2">
@@ -82,154 +49,165 @@ export const VoiceCustomizer: React.FC<VoiceCustomizerProps> = ({
               تخصيص الصوت والنبرة (Voice Tuning)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              اختر الشخصية الصوتية، حدد النبرة، واضبط السرعة وطبقة الصوت بدقة
+              اختر الشخصية الصوتية والنبرة وطبقة الصوت من القوائم المنسدلة
             </p>
           </div>
         </div>
       </div>
 
-      {/* 2. Voice Selection */}
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-          شخصية الصوت المؤدي:
-        </label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
-          {VOICES.map((voice) => {
-            const isSelected = selectedVoice === voice.id;
-            return (
-              <button
-                key={voice.id}
-                type="button"
-                onClick={() => setSelectedVoice(voice.id)}
-                className={`p-3 rounded-2xl border text-right transition-all touch-ripple flex flex-col justify-between ${
-                  isSelected
-                    ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 shadow-sm ring-2 ring-blue-500/20'
-                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-950/30'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm font-bold text-slate-900 dark:text-white">
-                      {voice.id}
-                    </span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                        voice.gender === 'female'
-                          ? 'bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300'
-                          : 'bg-sky-100 dark:bg-sky-950/50 text-sky-600 dark:text-sky-300'
-                      }`}
-                    >
-                      {voice.gender === 'female' ? 'أنثى' : 'ذكر'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    {voice.nameAr}
-                  </p>
-                </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 line-clamp-2 leading-relaxed">
-                  {voice.description}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 3. Tone Variations */}
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-          <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            تنوعات النبرة والأسلوب:
-          </label>
-
-          {/* Category Filter Chips */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setToneTab('all')}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${
-                toneTab === 'all'
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-white shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
+      {/* 2. Dropdown Grid: Voice & Tone Selection */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Voice Dropdown */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor="voice-dropdown"
+              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              <User className="w-3.5 h-3.5 text-blue-500" />
+              <span>شخصية الصوت المؤدي:</span>
+            </label>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                currentVoice.gender === 'female'
+                  ? 'bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300'
+                  : 'bg-sky-100 dark:bg-sky-950/50 text-sky-600 dark:text-sky-300'
               }`}
             >
-              الكل
-            </button>
-            <button
-              type="button"
-              onClick={() => setToneTab('egyptian')}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${
-                toneTab === 'egyptian'
-                  ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-              }`}
-            >
-              عامية مصرية 🇪🇬
-            </button>
-            <button
-              type="button"
-              onClick={() => setToneTab('classical')}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${
-                toneTab === 'classical'
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-              }`}
-            >
-              فصحى مشكولة 📜
-            </button>
-            <button
-              type="button"
-              onClick={() => setToneTab('multilingual')}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-colors ${
-                toneTab === 'multilingual'
-                  ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-400 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-              }`}
-            >
-              لغات عالمية 🌐
-            </button>
+              {currentVoice.gender === 'female' ? 'أنثى' : 'ذكر'}
+            </span>
           </div>
+
+          <div className="relative">
+            <select
+              id="voice-dropdown"
+              value={selectedVoice}
+              onChange={(e) => setSelectedVoice(e.target.value as VoiceId)}
+              className="w-full appearance-none p-3.5 pr-11 pl-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 cursor-pointer transition-colors"
+            >
+              {VOICES.map((voice) => (
+                <option key={voice.id} value={voice.id} className="py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                  {voice.nameAr} — ({voice.gender === 'female' ? 'صوت أنثوي' : 'صوت رجالي'})
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-slate-400 dark:text-slate-500">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 pr-1 leading-relaxed">
+            {currentVoice.description}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-          {filteredTones.map((preset) => {
-            const isSelected = selectedTone === preset.id;
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => setSelectedTone(preset.id)}
-                className={`p-3 rounded-2xl border text-right transition-all touch-ripple ${
-                  isSelected
-                    ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 shadow-sm ring-2 ring-blue-500/20'
-                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/40 dark:bg-slate-950/30'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="p-1.5 rounded-lg bg-white dark:bg-slate-800 shadow-xs">
-                    {getToneIcon(preset.iconName)}
-                  </div>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                    {preset.title}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {preset.description}
-                </p>
-              </button>
-            );
-          })}
+        {/* Tone Variations Dropdown */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor="tone-dropdown"
+              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              <AudioWaveform className="w-3.5 h-3.5 text-purple-500" />
+              <span>تنوعات النبرة والأسلوب:</span>
+            </label>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300">
+              {currentTone.category === 'egyptian' ? 'عامية مصرية 🇪🇬' : currentTone.category === 'classical' ? 'فصحى مشكولة 📜' : 'لغات عالمية 🌐'}
+            </span>
+          </div>
+
+          <div className="relative">
+            <select
+              id="tone-dropdown"
+              value={selectedTone}
+              onChange={(e) => setSelectedTone(e.target.value as ToneId)}
+              className="w-full appearance-none p-3.5 pr-11 pl-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 cursor-pointer transition-colors"
+            >
+              <optgroup label="🇪🇬 العامية المصرية (Egyptian Dialect)" className="font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800">
+                {TONE_PRESETS.filter((t) => t.category === 'egyptian').map((preset) => (
+                  <option key={preset.id} value={preset.id} className="py-2 font-normal bg-white dark:bg-slate-900">
+                    {preset.title} — ({preset.description})
+                  </option>
+                ))}
+              </optgroup>
+
+              <optgroup label="📜 اللغة العربية الفصحى المشكولة (Classical Arabic)" className="font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800">
+                {TONE_PRESETS.filter((t) => t.category === 'classical').map((preset) => (
+                  <option key={preset.id} value={preset.id} className="py-2 font-normal bg-white dark:bg-slate-900">
+                    {preset.title} — ({preset.description})
+                  </option>
+                ))}
+              </optgroup>
+
+              <optgroup label="🌐 لغات عالمية (Multilingual)" className="font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800">
+                {TONE_PRESETS.filter((t) => t.category === 'multilingual').map((preset) => (
+                  <option key={preset.id} value={preset.id} className="py-2 font-normal bg-white dark:bg-slate-900">
+                    {preset.title} — ({preset.description})
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-slate-400 dark:text-slate-500">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 pr-1 leading-relaxed">
+            {currentTone.description}
+          </p>
         </div>
       </div>
 
-      {/* 4. Sliders: Speech Rate & Pitch */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-        {/* Speech Rate */}
-        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
+      {/* 3. Sliders & Pitch Dropdown */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+        {/* Pitch Dropdown */}
+        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor="pitch-dropdown"
+              className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <Mic className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span>طبقة وخامة الصوت (Pitch):</span>
+            </label>
+            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+              {pitch === 'deep' ? 'جهوري/عميق' : pitch === 'bright' ? 'مشرق/رنان' : 'طبيعي معتدل'}
+            </span>
+          </div>
+
+          <div className="relative">
+            <select
+              id="pitch-dropdown"
+              value={pitch}
+              onChange={(e) => setPitch(e.target.value as PitchType)}
+              className="w-full appearance-none p-3 pr-11 pl-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 cursor-pointer transition-colors"
+            >
+              <option value="normal" className="py-2 bg-white dark:bg-slate-900">
+                طبيعي معتدل (Normal) — نبرة متوازنة ومريحة
+              </option>
+              <option value="deep" className="py-2 bg-white dark:bg-slate-900">
+                عميق / جهوري (Deep) — صوت فخم ووقور برنين جهوري
+              </option>
+              <option value="bright" className="py-2 bg-white dark:bg-slate-900">
+                مشرق / رنان (Bright) — طاقة ووضوح عالٍ بنبرة مضيئة
+              </option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-slate-400 dark:text-slate-500">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+
+          <p className="text-[10px] text-slate-400 dark:text-slate-500">
+            يتحكم في تردد الصوت وخامة الحنجرة لملائمة نوع المحتوى (أخبار، قصص، إعلانات).
+          </p>
+        </div>
+
+        {/* Speech Rate Slider */}
+        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-2">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+              <label htmlFor="speech-rate-slider" className="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
                 سرعة النطق (Speech Rate):
               </label>
             </div>
@@ -251,6 +229,7 @@ export const VoiceCustomizer: React.FC<VoiceCustomizerProps> = ({
           </div>
 
           <input
+            id="speech-rate-slider"
             type="range"
             min="0.5"
             max="2.0"
@@ -260,14 +239,14 @@ export const VoiceCustomizer: React.FC<VoiceCustomizerProps> = ({
             className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
 
-          <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
-            <span>0.5x (بطيء وواضح)</span>
-            <span>1.0x (طبيعي)</span>
-            <span>2.0x (سريع جداً)</span>
+          <div className="flex items-center justify-between text-[10px] text-slate-400">
+            <span>0.5x (بطيء)</span>
+            <span>1.0x (افتراضي)</span>
+            <span>2.0x (سريع)</span>
           </div>
 
           {/* Quick Rate Shortcuts */}
-          <div className="flex items-center gap-1.5 mt-2.5">
+          <div className="flex items-center gap-1.5 pt-1">
             {[0.8, 1.0, 1.2, 1.5].map((val) => (
               <button
                 key={val}
@@ -282,62 +261,6 @@ export const VoiceCustomizer: React.FC<VoiceCustomizerProps> = ({
                 {val.toFixed(1)}x
               </button>
             ))}
-          </div>
-        </div>
-
-        {/* Pitch Tuning */}
-        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Mic className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                طبقة وخامة الصوت (Pitch):
-              </label>
-            </div>
-            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {pitch === 'deep' ? 'جهوري/عميق' : pitch === 'bright' ? 'مشرق/رنان' : 'طبيعي معتدل'}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            <button
-              type="button"
-              onClick={() => setPitch('deep')}
-              className={`p-2 rounded-xl text-center border transition-all touch-ripple ${
-                pitch === 'deep'
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold ring-1 ring-indigo-500'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800'
-              }`}
-            >
-              <div className="text-xs">عميق / جهوري</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">صوت فخم ووقور</div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPitch('normal')}
-              className={`p-2 rounded-xl text-center border transition-all touch-ripple ${
-                pitch === 'normal'
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold ring-1 ring-indigo-500'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800'
-              }`}
-            >
-              <div className="text-xs">طبيعي معتدل</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">نبرة متوازنة</div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setPitch('bright')}
-              className={`p-2 rounded-xl text-center border transition-all touch-ripple ${
-                pitch === 'bright'
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold ring-1 ring-indigo-500'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800'
-              }`}
-            >
-              <div className="text-xs">مشرق / رنان</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">طاقة ووضوح عالٍ</div>
-            </button>
           </div>
         </div>
       </div>

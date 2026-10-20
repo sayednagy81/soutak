@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "صوتك - محول النص العربي والعامي لصوت Gemini TTS",
+  "short_name": "صوتك Sawtak",
+  "description": "تطبيق أندرويد عصري لتحويل النصوص العربية والمصرية والعالمية لصوت بشري طبيعي بنبرات متعددة وتصدير MP3 و WAV.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "categories": ["productivity", "multimedia", "utilities"],
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

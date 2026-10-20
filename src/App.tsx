@@ -11,8 +11,10 @@ import { LanguageSelector } from './components/LanguageSelector.tsx';
 import { VoiceCustomizer } from './components/VoiceCustomizer.tsx';
 import { AudioPlayerWaveform } from './components/AudioPlayerWaveform.tsx';
 import { HistoryDrawer } from './components/HistoryDrawer.tsx';
+import { AndroidInstallModal } from './components/AndroidInstallModal.tsx';
 import { GeneratedSpeechItem, LanguageId, PitchType, ToneId, VoiceId } from './types.ts';
 import { detectLanguageFromText } from './utils/langDetector.ts';
+import { usePWAInstall } from './hooks/usePWAInstall.ts';
 
 export default function App() {
   // Theme state
@@ -52,6 +54,10 @@ export default function App() {
     }
   });
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
+
+  // Android & PWA installation hook
+  const { canPromptDirectly, isAndroid, install } = usePWAInstall();
 
   // Apply dark mode class to html document
   useEffect(() => {
@@ -207,6 +213,7 @@ export default function App() {
         toggleDarkMode={() => setDarkMode(!darkMode)}
         historyCount={history.length}
         openHistory={() => setIsHistoryOpen(true)}
+        openAndroidModal={() => setIsAndroidModalOpen(true)}
       />
 
       {/* Main Container */}
@@ -355,6 +362,15 @@ export default function App() {
         }}
         onDownloadWav={(item) => handleDownloadWav(item)}
         onDownloadMp3={(item) => handleDownloadMp3(item)}
+      />
+
+      {/* Android & Google Play Store Modal */}
+      <AndroidInstallModal
+        isOpen={isAndroidModalOpen}
+        onClose={() => setIsAndroidModalOpen(false)}
+        canPromptDirectly={canPromptDirectly}
+        onDirectInstall={install}
+        isAndroid={isAndroid}
       />
 
       {/* Footer */}

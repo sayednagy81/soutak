@@ -8,6 +8,8 @@ import {
   Lightbulb,
   Check,
   Loader2,
+  ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 import { SAMPLE_TEXTS } from '../constants/presets.ts';
 import { PitchType, ToneId, VoiceId } from '../types.ts';
@@ -228,24 +230,36 @@ export const TextInputArea: React.FC<TextInputAreaProps> = ({
         )}
       </div>
 
-      {/* Preset Samples */}
-      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-            نماذج جاهزة للتجربة الفورية:
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {SAMPLE_TEXTS.map((sample, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => onApplyPreset(sample)}
-              className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-all border border-slate-200/60 dark:border-slate-700/60 touch-ripple"
-            >
-              {sample.label}
-            </button>
-          ))}
+      {/* Preset Samples Dropdown */}
+      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+        <label htmlFor="sample-presets-dropdown" className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+          <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+          <span>نماذج نصية جاهزة للتجربة الفورية:</span>
+        </label>
+        <div className="relative">
+          <select
+            id="sample-presets-dropdown"
+            defaultValue=""
+            onChange={(e) => {
+              const idx = parseInt(e.target.value);
+              if (!isNaN(idx) && SAMPLE_TEXTS[idx]) {
+                onApplyPreset(SAMPLE_TEXTS[idx]);
+              }
+            }}
+            className="w-full appearance-none p-3 pr-11 pl-4 rounded-xl bg-slate-100/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer transition-colors"
+          >
+            <option value="" disabled className="bg-white dark:bg-slate-900 text-slate-400">
+              -- اضغط لاختيار نموذج تجريبي جاهز (مصري، فصحى، إنجليزي، فرنسي) --
+            </option>
+            {SAMPLE_TEXTS.map((sample, idx) => (
+              <option key={idx} value={idx} className="py-2 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                {sample.label} — "{sample.text.length > 55 ? sample.text.substring(0, 55) + '...' : sample.text}"
+              </option>
+            ))}
+          </select>
+          <div className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-slate-400 dark:text-slate-500">
+            <ChevronDown className="w-4 h-4" />
+          </div>
         </div>
       </div>
     </div>

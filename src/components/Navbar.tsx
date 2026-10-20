@@ -1,11 +1,12 @@
 import React from 'react';
-import { Volume2, Moon, Sun, History } from 'lucide-react';
+import { Volume2, Moon, Sun, History, Smartphone } from 'lucide-react';
 
 interface NavbarProps {
   darkMode: boolean;
   toggleDarkMode: () => void;
   historyCount: number;
   openHistory: () => void;
+  openAndroidModal: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -13,6 +14,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   toggleDarkMode,
   historyCount,
   openHistory,
+  openAndroidModal,
 }) => {
   return (
     <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 dark:bg-slate-900/85 border-b border-slate-200/80 dark:border-slate-800 transition-colors">
@@ -39,6 +41,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Android App Button */}
+          <button
+            onClick={openAndroidModal}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300/80 dark:border-emerald-800/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors touch-ripple shadow-xs"
+            title="تثبيت كتطبيق أندرويد وتنزيله من المتجر"
+          >
+            <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">تطبيق أندرويد</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-emerald-600 text-white font-bold hidden md:inline">
+              APK / PWA
+            </span>
+          </button>
+
           {/* History Button */}
           <button
             onClick={openHistory}
@@ -46,7 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             title="سجل التوليدات السابقة"
           >
             <History className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="hidden md:inline">التسجيلات السابقة</span>
+            <span className="hidden lg:inline">التسجيلات</span>
             {historyCount > 0 && (
               <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 text-[11px] font-bold rounded-full bg-blue-600 text-white">
                 {historyCount}

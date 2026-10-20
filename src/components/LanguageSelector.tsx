@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, Sparkles } from 'lucide-react';
+import { Globe, Sparkles, ChevronDown } from 'lucide-react';
 import { LANGUAGES } from '../constants/presets.ts';
 import { LanguageId } from '../types.ts';
 import { DetectionResult } from '../utils/langDetector.ts';
@@ -24,11 +24,11 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
             <Globe className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+            <label htmlFor="language-dropdown" className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white cursor-pointer block">
               لغة النطق والقراءة (Language Selection)
-            </h3>
+            </label>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              اختر اللغة يدوياً أو دع النظام يكتشفها تلقائياً للنطق المتقن
+              اختر اللغة من القائمة المنسدلة أو اتركها على الاكتشاف التلقائي
             </p>
           </div>
         </div>
@@ -42,31 +42,23 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         )}
       </div>
 
-      {/* Language Chips */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {LANGUAGES.map((lang) => {
-          const isSelected = selectedLanguage === lang.id;
-          return (
-            <button
-              key={lang.id}
-              type="button"
-              onClick={() => onSelectLanguage(lang.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-semibold whitespace-nowrap transition-all touch-ripple shrink-0 ${
-                isSelected
-                  ? 'border-teal-500 bg-teal-50/80 dark:bg-teal-950/50 text-teal-800 dark:text-teal-200 shadow-xs ring-2 ring-teal-500/20'
-                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-950/30 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              <span className="text-sm">{lang.flag}</span>
-              <span>{lang.nameAr}</span>
-              {lang.id !== 'auto' && (
-                <span className="text-[10px] opacity-60 font-normal">
-                  ({lang.nativeName})
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* Language Dropdown Select */}
+      <div className="relative">
+        <select
+          id="language-dropdown"
+          value={selectedLanguage}
+          onChange={(e) => onSelectLanguage(e.target.value as LanguageId)}
+          className="w-full appearance-none p-3.5 pr-11 pl-4 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 cursor-pointer transition-colors"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.id} value={lang.id} className="py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+              {lang.flag} {lang.nameAr} {lang.id !== 'auto' ? `(${lang.nativeName})` : ''}
+            </option>
+          ))}
+        </select>
+        <div className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-slate-400 dark:text-slate-500">
+          <ChevronDown className="w-4 h-4" />
+        </div>
       </div>
     </div>
   );
