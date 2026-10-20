@@ -92,28 +92,36 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onDownloadWav(item)}
-                      className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 text-[11px] font-bold"
-                      title="تحميل WAV"
-                    >
-                      WAV
-                    </button>
+                    {!item.isDeviceFallback ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadWav(item)}
+                          className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 text-[11px] font-bold cursor-pointer"
+                          title="تحميل WAV"
+                        >
+                          WAV
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => onDownloadMp3(item)}
-                      className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-[11px] font-bold"
-                      title="تحميل MP3"
-                    >
-                      MP3
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadMp3(item)}
+                          className="p-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-[11px] font-bold cursor-pointer"
+                          title="تحميل MP3"
+                        >
+                          MP3
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/30">
+                        صوت الجهاز (لا يحمل)
+                      </span>
+                    )}
 
                     <button
                       type="button"
                       onClick={() => onDeleteItem(item.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
                       title="حذف من السجل"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

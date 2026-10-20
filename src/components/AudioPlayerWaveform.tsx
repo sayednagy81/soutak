@@ -10,9 +10,19 @@ import {
   FileAudio,
   Share2,
   Check,
+  AlertTriangle,
+  Info,
+  Square,
 } from 'lucide-react';
 import { GeneratedSpeechItem } from '../types.ts';
 import { ShareAudioModal } from './ShareAudioModal.tsx';
+import {
+  speakWithBrowser,
+  stopBrowserSpeech,
+  pauseBrowserSpeech,
+  resumeBrowserSpeech,
+  estimateTextDuration,
+} from '../utils/browserTTS.ts';
 
 interface AudioPlayerWaveformProps {
   item: GeneratedSpeechItem;
@@ -36,12 +46,44 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
-  const [playerSpeed, setPlayerSpeed] = useState(1);
+  const [playerSpeed, setPlayerSpeed] = useState(item.speechRate || 1);
   const [shared, setShared] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-  // Setup audio source and events
+  const isDeviceSpeech = Boolean(item.isDeviceFallback || !item.wavUrl);
+
+  // Setup audio source and events when dealing with real audio files
   useEffect(() => {
+    if (isDeviceSpeech) {
+      // In device speech mode, duration is estimated
+      const est = item.duration || estimateTextDuration(item.text, playerSpeed);
+      setDuration(est);
+      setCurrentTime(0);
+      setIsPlaying(true); // Started speaking when generated
+
+      // Start speaking via browser SpeechSynthesis
+      const pitchVal = item.pitch === 'deep' ? 0.8 : item.pitch === 'bright' ? 1.2 : 1.0;
+      speakWithBrowser(
+        item.text,
+        item.language === 'auto' ? undefined : item.language,
+        playerSpeed,
+        pitchVal,
+        {
+          onStart: () => setIsPlaying(true),
+          onEnd: () => {
+            setIsPlaying(false);
+            setCurrentTime(0);
+          },
+          onError: () => setIsPlaying(false),
+        }
+      );
+
+      return () => {
+        stopBrowserSpeech();
+        setIsPlaying(false);
+      };
+    }
+
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -73,11 +115,11 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
       audio.removeEventListener('ended', handleEnded);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [item.wavUrl]);
+  }, [item.id, item.wavUrl, isDeviceSpeech]);
 
-  // Connect Web Audio API Analyser for live visualizer
+  // Connect Web Audio API Analyser for live visualizer (HTML audio mode)
   const initWebAudio = () => {
-    if (audioCtxRef.current || !audioRef.current) return;
+    if (isDeviceSpeech || audioCtxRef.current || !audioRef.current) return;
 
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -103,6 +145,19 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    let timerId: any = null;
+    if (isDeviceSpeech && isPlaying) {
+      timerId = setInterval(() => {
+        setCurrentTime((prev) => {
+          if (prev >= duration) {
+            setIsPlaying(false);
+            return 0;
+          }
+          return prev + 0.2;
+        });
+      }, 200);
+    }
+
     const render = () => {
       animFrameRef.current = requestAnimationFrame(render);
       const width = canvas.width;
@@ -110,14 +165,23 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
       ctx.clearRect(0, 0, width, height);
 
       let dataArray: Uint8Array;
-      if (analyserRef.current && isPlaying) {
+      if (!isDeviceSpeech && analyserRef.current && isPlaying) {
         dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
         (analyserRef.current as any).getByteFrequencyData(dataArray);
+      } else if (isPlaying) {
+        // Dynamic pulsating bars for live device speech
+        dataArray = new Uint8Array(32);
+        const now = Date.now() / 150;
+        for (let i = 0; i < 32; i++) {
+          dataArray[i] = Math.floor(
+            Math.sin(now + i * 0.5) * 45 + Math.cos(now * 1.5 + i * 0.3) * 35 + 90
+          );
+        }
       } else {
-        // Subtle simulated idle / static wave
+        // Idle subtle wave
         dataArray = new Uint8Array(32);
         for (let i = 0; i < 32; i++) {
-          dataArray[i] = Math.sin(i * 0.4) * 8 + 12;
+          dataArray[i] = Math.sin(i * 0.4) * 8 + 14;
         }
       }
 
@@ -134,11 +198,15 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
         const x = i * (barWidth + barSpacing);
         const y = (height - barHeight) / 2;
 
-        // Gradient color for bars
         const grad = ctx.createLinearGradient(0, y, 0, y + barHeight);
         if (isPlaying) {
-          grad.addColorStop(0, '#3B82F6');
-          grad.addColorStop(1, '#8B5CF6');
+          if (isDeviceSpeech) {
+            grad.addColorStop(0, '#F59E0B');
+            grad.addColorStop(1, '#D97706');
+          } else {
+            grad.addColorStop(0, '#3B82F6');
+            grad.addColorStop(1, '#8B5CF6');
+          }
         } else {
           grad.addColorStop(0, '#94A3B8');
           grad.addColorStop(1, '#CBD5E1');
@@ -154,11 +222,42 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
     render();
 
     return () => {
+      if (timerId) clearInterval(timerId);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, isDeviceSpeech, duration]);
 
   const togglePlay = async () => {
+    if (isDeviceSpeech) {
+      if (isPlaying) {
+        pauseBrowserSpeech();
+        setIsPlaying(false);
+      } else {
+        if (window.speechSynthesis.paused) {
+          resumeBrowserSpeech();
+          setIsPlaying(true);
+        } else {
+          const pitchVal = item.pitch === 'deep' ? 0.8 : item.pitch === 'bright' ? 1.2 : 1.0;
+          speakWithBrowser(
+            item.text,
+            item.language === 'auto' ? undefined : item.language,
+            playerSpeed,
+            pitchVal,
+            {
+              onStart: () => setIsPlaying(true),
+              onEnd: () => {
+                setIsPlaying(false);
+                setCurrentTime(0);
+              },
+              onError: () => setIsPlaying(false),
+            }
+          );
+          setIsPlaying(true);
+        }
+      }
+      return;
+    }
+
     if (!audioRef.current) return;
     initWebAudio();
 
@@ -170,15 +269,32 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch((err) => {
-        console.error('Play error:', err);
-      });
+      audioRef.current
+        .play()
+        .then(() => {
+          setIsPlaying(true);
+        })
+        .catch((err) => {
+          console.error('Play error:', err);
+        });
+    }
+  };
+
+  const handleStop = () => {
+    if (isDeviceSpeech) {
+      stopBrowserSpeech();
+      setIsPlaying(false);
+      setCurrentTime(0);
+    } else if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setIsPlaying(false);
+      setCurrentTime(0);
     }
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isDeviceSpeech) return; // SpeechSynthesis does not support seeking
     const val = parseFloat(e.target.value);
     setCurrentTime(val);
     if (audioRef.current) {
@@ -187,6 +303,7 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
   };
 
   const skipSeconds = (sec: number) => {
+    if (isDeviceSpeech) return;
     if (!audioRef.current) return;
     audioRef.current.currentTime = Math.max(
       0,
@@ -196,12 +313,36 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
 
   const handleSpeedChange = (speed: number) => {
     setPlayerSpeed(speed);
-    if (audioRef.current) {
+    if (!isDeviceSpeech && audioRef.current) {
       audioRef.current.playbackRate = speed;
+    } else if (isDeviceSpeech && isPlaying) {
+      // Re-read with new speed
+      const pitchVal = item.pitch === 'deep' ? 0.8 : item.pitch === 'bright' ? 1.2 : 1.0;
+      speakWithBrowser(
+        item.text,
+        item.language === 'auto' ? undefined : item.language,
+        speed,
+        pitchVal,
+        {
+          onStart: () => setIsPlaying(true),
+          onEnd: () => {
+            setIsPlaying(false);
+            setCurrentTime(0);
+          },
+          onError: () => setIsPlaying(false),
+        }
+      );
     }
   };
 
   const toggleMute = () => {
+    if (isDeviceSpeech) {
+      if (isPlaying) {
+        stopBrowserSpeech();
+        setIsPlaying(false);
+      }
+      return;
+    }
     if (!audioRef.current) return;
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
@@ -231,25 +372,62 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
   };
 
   return (
-    <div className="bg-gradient-to-b from-blue-50/50 to-white dark:from-slate-900/90 dark:to-slate-900 rounded-3xl p-5 sm:p-6 border border-blue-200/60 dark:border-slate-800 shadow-md transition-all space-y-5">
-      <audio ref={audioRef} preload="auto" />
+    <div
+      className={`rounded-3xl p-5 sm:p-6 border shadow-md transition-all space-y-5 ${
+        isDeviceSpeech
+          ? 'bg-gradient-to-b from-amber-50/70 to-white dark:from-amber-950/20 dark:to-slate-900 border-amber-300 dark:border-amber-900/60'
+          : 'bg-gradient-to-b from-blue-50/50 to-white dark:from-slate-900/90 dark:to-slate-900 border-blue-200/60 dark:border-slate-800'
+      }`}
+    >
+      {!isDeviceSpeech && <audio ref={audioRef} preload="auto" />}
+
+      {/* Explicit notice if fallback device speech */}
+      {isDeviceSpeech && (
+        <div className="p-4 rounded-2xl bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800/80 text-amber-900 dark:text-amber-200 text-xs sm:text-sm flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold">
+              تنبيه: قراءة احتياطية مباشرة بصوت الجهاز
+            </p>
+            <p className="leading-relaxed">
+              انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات.
+              يتم قراءة النص الآن عبر محرك الصوت الداخلي لجهازك بجودة قياسية، <strong>ولا يمكن تحميل الصوت كملف MP3 أو WAV</strong> لأن الصوت يخرج مباشرة من مكبرات الجهاز.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Header Info */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-sm shadow-blue-500/30">
+          <div
+            className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-sm ${
+              isDeviceSpeech
+                ? 'bg-amber-600 text-white shadow-amber-500/30'
+                : 'bg-blue-600 text-white shadow-blue-500/30'
+            }`}
+          >
             <FileAudio className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-              الصوت البشري المولد (Gemini TTS)
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>{isDeviceSpeech ? 'قراءة صوت الجهاز (احتياطي)' : 'الصوت البشري المولد (Gemini TTS)'}</span>
+              {isDeviceSpeech && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200">
+                  جودة قياسية
+                </span>
+              )}
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              الصوت: <span className="font-semibold text-blue-600 dark:text-blue-400">{item.voice}</span>
+              {isDeviceSpeech ? (
+                <>المحرك: <span className="font-semibold text-amber-600 dark:text-amber-400">SpeechSynthesis (صوت الجهاز)</span></>
+              ) : (
+                <>الصوت: <span className="font-semibold text-blue-600 dark:text-blue-400">{item.voice}</span></>
+              )}
               {item.detectedLang && (
                 <> · اللغة: <span className="font-semibold text-teal-600 dark:text-teal-400">{item.detectedLang}</span></>
               )}
-              {' '}· السرعة: <span className="font-semibold">{item.speechRate}x</span> · الطبقة: <span className="font-semibold">{item.pitch}</span>
+              {' '}· السرعة: <span className="font-semibold">{playerSpeed}x</span>
             </p>
           </div>
         </div>
@@ -258,7 +436,7 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
         <button
           type="button"
           onClick={handleShare}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple border border-slate-200 dark:border-slate-700"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple border border-slate-200 dark:border-slate-700 cursor-pointer"
           title="نسخ النص المنطوق"
         >
           {shared ? (
@@ -287,8 +465,14 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
         />
         <div className="w-full flex items-center justify-between text-[11px] font-mono text-slate-400 mt-2 px-1">
           <span>{formatTime(currentTime)}</span>
-          <span className="text-[10px] text-blue-400">
-            {isPlaying ? 'جاري التشغيل الآن...' : 'جاهز للاستماع والتنزيل'}
+          <span className={`text-[10px] ${isDeviceSpeech ? 'text-amber-400' : 'text-blue-400'}`}>
+            {isPlaying
+              ? isDeviceSpeech
+                ? 'جاري القراءة بصوت الجهاز...'
+                : 'جاري تشغيل الصوت عالي الجودة...'
+              : isDeviceSpeech
+              ? 'متوقف مؤقتاً (صوت الجهاز)'
+              : 'جاهز للاستماع والتنزيل'}
           </span>
           <span>{formatTime(duration)}</span>
         </div>
@@ -302,28 +486,39 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
           max={duration || 100}
           step="0.01"
           value={currentTime}
+          disabled={isDeviceSpeech}
           onChange={handleSeek}
-          className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+          className={`w-full h-2 rounded-lg appearance-none ${
+            isDeviceSpeech
+              ? 'bg-amber-200 dark:bg-amber-950/40 cursor-not-allowed opacity-50'
+              : 'bg-slate-200 dark:bg-slate-700 cursor-pointer accent-blue-600'
+          }`}
         />
       </div>
 
       {/* Playback Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        {/* Main Controls: Rewind, Play/Pause, Fast-forward */}
+        {/* Main Controls: Rewind, Play/Pause, Fast-forward / Stop */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => skipSeconds(-5)}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple"
-            title="ترجيع 5 ثوانٍ"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+          {!isDeviceSpeech && (
+            <button
+              type="button"
+              onClick={() => skipSeconds(-5)}
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple cursor-pointer"
+              title="ترجيع 5 ثوانٍ"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
 
           <button
             type="button"
             onClick={togglePlay}
-            className="w-12 h-12 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md shadow-blue-500/25 transition-transform touch-ripple active:scale-95"
+            className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center shadow-md transition-transform touch-ripple active:scale-95 cursor-pointer ${
+              isDeviceSpeech
+                ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/25'
+                : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/25'
+            }`}
             title={isPlaying ? 'إيقاف مؤقت' : 'تشغيل الصوت'}
           >
             {isPlaying ? (
@@ -333,26 +528,39 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={() => skipSeconds(5)}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple"
-            title="تقديم 5 ثوانٍ"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
+          {isDeviceSpeech ? (
+            <button
+              type="button"
+              onClick={handleStop}
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple cursor-pointer"
+              title="إيقاف كلي"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => skipSeconds(5)}
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors touch-ripple cursor-pointer"
+              title="تقديم 5 ثوانٍ"
+            >
+              <RotateCw className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/* Speed Multipiers on player */}
+        {/* Speed Multipliers on player */}
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
           {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
             <button
               key={spd}
               type="button"
               onClick={() => handleSpeedChange(spd)}
-              className={`px-2 py-1 text-[11px] font-semibold rounded-lg transition-colors ${
+              className={`px-2 py-1 text-[11px] font-semibold rounded-lg transition-colors cursor-pointer ${
                 playerSpeed === spd
-                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-white shadow-xs'
+                  ? isDeviceSpeech
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-white dark:bg-slate-700 text-blue-600 dark:text-white shadow-xs'
                   : 'text-slate-500 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
@@ -362,34 +570,56 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
         </div>
 
         {/* Mute Button */}
-        <button
-          type="button"
-          onClick={toggleMute}
-          className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title={isMuted ? 'إلغاء الكتم' : 'كتم الصوت'}
-        >
-          {isMuted ? (
-            <VolumeX className="w-4 h-4 text-red-500" />
-          ) : (
-            <Volume2 className="w-4 h-4" />
-          )}
-        </button>
+        {!isDeviceSpeech && (
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            title={isMuted ? 'إلغاء الكتم' : 'كتم الصوت'}
+          >
+            {isMuted ? (
+              <VolumeX className="w-4 h-4 text-red-500" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Multi-Format Export & Sharing Buttons */}
       <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-2">
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-          خيارات التحميل والمشاركة:
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+            خيارات التحميل والمشاركة:
+          </label>
+          {isDeviceSpeech && (
+            <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+              (التحميل غير مدعوم في القراءة الاحتياطية)
+            </span>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Download WAV Button */}
           <button
             type="button"
-            onClick={onDownloadWav}
-            className="flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800/90 border border-blue-300 dark:border-blue-900/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-all touch-ripple group shadow-xs"
+            disabled={isDeviceSpeech}
+            onClick={isDeviceSpeech ? undefined : onDownloadWav}
+            className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+              isDeviceSpeech
+                ? 'bg-slate-100/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-50 cursor-not-allowed'
+                : 'bg-white dark:bg-slate-800/90 border-blue-300 dark:border-blue-900/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 touch-ripple group shadow-xs cursor-pointer'
+            }`}
+            title={isDeviceSpeech ? 'لا يمكن تحميل الصوت كملف في القراءة الاحتياطية' : 'تحميل بصيغة WAV'}
           >
             <div className="flex items-center gap-2.5 text-right">
-              <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isDeviceSpeech
+                    ? 'bg-slate-200 dark:bg-slate-700 text-slate-400'
+                    : 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 group-hover:scale-105 transition-transform'
+                }`}
+              >
                 <Download className="w-4 h-4" />
               </div>
               <div>
@@ -397,11 +627,17 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
                   تحميل WAV
                 </div>
                 <div className="text-[10px] text-slate-400">
-                  استوديو خام (24kHz) {item.wavSize ? `· ${formatFileSize(item.wavSize)}` : ''}
+                  {isDeviceSpeech
+                    ? 'غير متاح بالصوت الاحتياطي'
+                    : `استوديو خام (24kHz) ${item.wavSize ? `· ${formatFileSize(item.wavSize)}` : ''}`}
                 </div>
               </div>
             </div>
-            <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+            <span
+              className={`text-[11px] font-semibold ${
+                isDeviceSpeech ? 'text-slate-400' : 'text-blue-600 dark:text-blue-400'
+              }`}
+            >
               .WAV
             </span>
           </button>
@@ -409,11 +645,23 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
           {/* Download MP3 Button */}
           <button
             type="button"
-            onClick={onDownloadMp3}
-            className="flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800/90 border border-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-all touch-ripple group shadow-xs"
+            disabled={isDeviceSpeech}
+            onClick={isDeviceSpeech ? undefined : onDownloadMp3}
+            className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+              isDeviceSpeech
+                ? 'bg-slate-100/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-50 cursor-not-allowed'
+                : 'bg-white dark:bg-slate-800/90 border-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 touch-ripple group shadow-xs cursor-pointer'
+            }`}
+            title={isDeviceSpeech ? 'لا يمكن تحميل الصوت كملف في القراءة الاحتياطية' : 'تحميل بصيغة MP3'}
           >
             <div className="flex items-center gap-2.5 text-right">
-              <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isDeviceSpeech
+                    ? 'bg-slate-200 dark:bg-slate-700 text-slate-400'
+                    : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 group-hover:scale-105 transition-transform'
+                }`}
+              >
                 <Download className="w-4 h-4" />
               </div>
               <div>
@@ -421,11 +669,17 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
                   تحميل MP3
                 </div>
                 <div className="text-[10px] text-slate-400">
-                  مضغوط للمشاركة {item.mp3Size ? `· ${formatFileSize(item.mp3Size)}` : ''}
+                  {isDeviceSpeech
+                    ? 'غير متاح بالصوت الاحتياطي'
+                    : `مضغوط للمشاركة ${item.mp3Size ? `· ${formatFileSize(item.mp3Size)}` : ''}`}
                 </div>
               </div>
             </div>
-            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+            <span
+              className={`text-[11px] font-semibold ${
+                isDeviceSpeech ? 'text-slate-400' : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
               .MP3
             </span>
           </button>
@@ -434,7 +688,7 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
           <button
             type="button"
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800/90 border border-indigo-300 dark:border-indigo-900/60 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 transition-all touch-ripple group shadow-xs"
+            className="flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-slate-800/90 border border-indigo-300 dark:border-indigo-900/60 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 transition-all touch-ripple group shadow-xs cursor-pointer"
           >
             <div className="flex items-center gap-2.5 text-right">
               <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -442,10 +696,10 @@ export const AudioPlayerWaveform: React.FC<AudioPlayerWaveformProps> = ({
               </div>
               <div>
                 <div className="text-xs font-bold text-slate-900 dark:text-white">
-                  مشاركة الصوت
+                  مشاركة النص
                 </div>
                 <div className="text-[10px] text-slate-400">
-                  واتساب، تيليجرام، وX
+                  نسخ النص وروابط التواصل
                 </div>
               </div>
             </div>

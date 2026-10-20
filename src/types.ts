@@ -58,4 +58,5 @@ export interface GeneratedSpeechItem {
   mp3Size?: number;
   createdAt: number;
   duration?: number;
+  isDeviceFallback?: boolean;
 }

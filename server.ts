@@ -197,7 +197,7 @@ app.post('/api/tts/generate', async (req: Request, res: Response): Promise<void>
           quotaExceeded: true,
           error: 'QUOTA_EXCEEDED',
           message:
-            'تم استهلاك الحصة اليومية المجانية المتاحة لنماذج Gemini TTS (10 طلبات يومياً على الحساب المجاني).',
+            'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات.',
         });
         return;
       }
@@ -252,7 +252,7 @@ app.post('/api/tts/generate', async (req: Request, res: Response): Promise<void>
         quotaExceeded: true,
         error: 'QUOTA_EXCEEDED',
         message:
-          'تم استهلاك الحصة اليومية المجانية لنموذج Gemini TTS (10 طلبات في اليوم للحساب المجاني).',
+          'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات.',
       });
       return;
     }

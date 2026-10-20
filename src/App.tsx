@@ -17,33 +17,40 @@ import { AndroidInstallModal } from './components/AndroidInstallModal.tsx';
 import { GeneratedSpeechItem, LanguageId, PitchType, ToneId, VoiceId } from './types.ts';
 import { detectLanguageFromText } from './utils/langDetector.ts';
 import { usePWAInstall } from './hooks/usePWAInstall.ts';
-import { speakWithBrowser } from './utils/browserTTS.ts';
+import { speakWithBrowser, estimateTextDuration } from './utils/browserTTS.ts';
 
 // Clean error message formatter to prevent any raw API JSON from displaying to users
+const QUOTA_EXCEEDED_ALERT =
+  'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات.';
+
 function formatArabicErrorMessage(msg: string | null): string {
   if (!msg) return '';
+  const str = typeof msg === 'string' ? msg : JSON.stringify(msg);
   if (
-    msg.includes('429') ||
-    msg.includes('RESOURCE_EXHAUSTED') ||
-    msg.includes('Quota exceeded') ||
-    msg.includes('quota') ||
-    msg.includes('limit: 10')
+    str.includes('429') ||
+    str.includes('RESOURCE_EXHAUSTED') ||
+    str.includes('Quota exceeded') ||
+    str.includes('quota') ||
+    str.includes('limit: 10') ||
+    str.includes('QUOTA_EXCEEDED')
   ) {
-    return 'تم استهلاك الحصة اليومية المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني). تم تفعيل المحرك الصوتي الداخلي لتوفير الصوت بصيغتي MP3 و WAV بجودة عالية دون انقطاع.';
+    return QUOTA_EXCEEDED_ALERT;
   }
-  if (msg.trim().startsWith('{') && msg.includes('"error"')) {
+  if (str.trim().startsWith('{') || str.includes('"error"')) {
     try {
-      const parsed = JSON.parse(msg);
-      if (parsed.error?.message) {
-        const inner = parsed.error.message;
-        if (inner.includes('429') || inner.includes('Quota') || inner.includes('quota') || inner.includes('limit: 10')) {
-          return 'تم الوصول للحد الأقصى للحصة المجانية اليومية (10 طلبات). يعمل التطبيق تلقائياً عبر المحرك الصوتي الداخلي لتوليد الصوت وتحميله بصيغتي MP3 و WAV.';
-        }
-        return inner;
+      const parsed = JSON.parse(str);
+      if (
+        parsed.error?.code === 429 ||
+        parsed.error?.status === 'RESOURCE_EXHAUSTED' ||
+        parsed.error?.message?.includes('quota') ||
+        parsed.error?.message?.includes('429')
+      ) {
+        return QUOTA_EXCEEDED_ALERT;
       }
     } catch {}
+    return 'حدث خطأ مؤقت في الاتصال بخدمة التوليد الصوتي. يرجى المحاولة لاحقاً.';
   }
-  return msg;
+  return str;
 }
 
 export default function App() {
@@ -146,9 +153,9 @@ export default function App() {
 
       // If Gemini quota is exceeded or cloud generation encounters error
       if (!response.ok || !data.success || data.quotaExceeded) {
-        console.warn('Gemini cloud quota reached or failed, activating seamless browser fallback...');
+        console.warn('Gemini cloud quota reached or failed, activating device SpeechSynthesis fallback...');
         const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
-        const browserResult = await speakWithBrowser(
+        speakWithBrowser(
           text.trim(),
           effectiveLanguage,
           speechRate,
@@ -161,20 +168,20 @@ export default function App() {
           voice: selectedVoice,
           tone: selectedTone,
           language: selectedLanguage,
-          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
+          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (صوت الجهاز)`,
           speechRate,
           pitch,
-          wavUrl: browserResult.wavUrl,
-          mp3Url: browserResult.mp3Url,
-          wavSize: browserResult.sizeWav,
-          mp3Size: browserResult.sizeMp3,
+          wavUrl: '',
+          mp3Url: '',
           createdAt: Date.now(),
+          duration: estimateTextDuration(text.trim(), speechRate),
+          isDeviceFallback: true,
         };
 
         setCurrentAudio(newItem);
         setFallbackActive(true);
         setNoticeMessage(
-          '🔔 نظراً لنفاذ الحصة المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني)، تم توليد الصوت بنجاح وتشغيله عبر المحرك الصوتي الداخلي دون انقطاع، ويمكنك تحميل ملفات MP3 و WAV كالمعتاد.'
+          'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات. يتم الآن قراءة النص عبر صوت الجهاز المدمج (جودة قياسية ولا يمكن تحميله كملف).'
         );
 
         // Save metadata in history
@@ -251,7 +258,7 @@ export default function App() {
       console.warn('Network or server error, attempting in-browser TTS fallback...', err);
       try {
         const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
-        const browserResult = await speakWithBrowser(
+        speakWithBrowser(
           text.trim(),
           effectiveLanguage,
           speechRate,
@@ -264,20 +271,20 @@ export default function App() {
           voice: selectedVoice,
           tone: selectedTone,
           language: selectedLanguage,
-          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
+          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (صوت الجهاز)`,
           speechRate,
           pitch,
-          wavUrl: browserResult.wavUrl,
-          mp3Url: browserResult.mp3Url,
-          wavSize: browserResult.sizeWav,
-          mp3Size: browserResult.sizeMp3,
+          wavUrl: '',
+          mp3Url: '',
           createdAt: Date.now(),
+          duration: estimateTextDuration(text.trim(), speechRate),
+          isDeviceFallback: true,
         };
 
         setCurrentAudio(newItem);
         setFallbackActive(true);
         setNoticeMessage(
-          '🔔 تم التوليد بنجاح عبر المحرك الصوتي الداخلي. يمكنك الاستماع والتحميل بصيغتي MP3 و WAV دون توقف.'
+          'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات. يتم الآن قراءة النص عبر صوت الجهاز المدمج (جودة قياسية ولا يمكن تحميله كملف).'
         );
       } catch (fallbackErr) {
         setErrorMessage(
@@ -343,7 +350,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>مدعوم بتقنية Gemini TTS مع محرك احتياطي غير محدود</span>
+              <span>صوت عالي الجودة مع قراءة احتياطية بصوت الجهاز</span>
             </div>
 
             {fallbackActive && (
