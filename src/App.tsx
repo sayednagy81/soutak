@@ -17,32 +17,16 @@ import { AndroidInstallModal } from './components/AndroidInstallModal.tsx';
 import { GeneratedSpeechItem, LanguageId, PitchType, ToneId, VoiceId } from './types.ts';
 import { detectLanguageFromText } from './utils/langDetector.ts';
 import { usePWAInstall } from './hooks/usePWAInstall.ts';
-import { speakWithBrowser } from './utils/browserTTS.ts';
+import { speakLive } from './utils/browserTTS.ts';
 
-// Clean error message formatter to prevent any raw API JSON from displaying to users
+// Never show raw API JSON to users: map known failures to short Arabic messages
+const QUOTA_MESSAGE =
+  'انتهى الحد المجاني اليومي للصوت عالي الجودة (10 طلبات يوميًا) وسيتجدد خلال ساعات. يمكنك المحاولة لاحقًا.';
+
 function formatArabicErrorMessage(msg: string | null): string {
   if (!msg) return '';
-  if (
-    msg.includes('429') ||
-    msg.includes('RESOURCE_EXHAUSTED') ||
-    msg.includes('Quota exceeded') ||
-    msg.includes('quota') ||
-    msg.includes('limit: 10')
-  ) {
-    return 'تم استهلاك الحصة اليومية المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني). تم تفعيل المحرك الصوتي الداخلي لتوفير الصوت بصيغتي MP3 و WAV بجودة عالية دون انقطاع.';
-  }
-  if (msg.trim().startsWith('{') && msg.includes('"error"')) {
-    try {
-      const parsed = JSON.parse(msg);
-      if (parsed.error?.message) {
-        const inner = parsed.error.message;
-        if (inner.includes('429') || inner.includes('Quota') || inner.includes('quota') || inner.includes('limit: 10')) {
-          return 'تم الوصول للحد الأقصى للحصة المجانية اليومية (10 طلبات). يعمل التطبيق تلقائياً عبر المحرك الصوتي الداخلي لتوليد الصوت وتحميله بصيغتي MP3 و WAV.';
-        }
-        return inner;
-      }
-    } catch {}
-  }
+  if (/429|RESOURCE_EXHAUSTED|quota/i.test(msg)) return QUOTA_MESSAGE;
+  if (msg.trim().startsWith('{')) return 'حدث خطأ مؤقت أثناء المعالجة، يرجى المحاولة مرة أخرى.';
   return msg;
 }
 
@@ -114,6 +98,20 @@ export default function App() {
     return URL.createObjectURL(blob);
   };
 
+  // Device-voice fallback: plays live, no downloadable file (browsers cannot record it)
+  const runLiveFallback = (lang: string, quotaExceeded: boolean) => {
+    const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
+    if (speakLive(text.trim(), lang, speechRate, pitchVal)) {
+      setFallbackActive(true);
+      setNoticeMessage(
+        (quotaExceeded ? QUOTA_MESSAGE + ' ' : 'تعذر الوصول للخدمة السحابية. ') +
+          'يتم الآن قراءة النص بصوت الجهاز؛ جودته أقل ولا يمكن تحميله كملف MP3/WAV.'
+      );
+    } else {
+      setErrorMessage(quotaExceeded ? QUOTA_MESSAGE : 'تعذر الاتصال بخدمة التوليد الصوتي. يرجى المحاولة لاحقًا.');
+    }
+  };
+
   // Main TTS Generation handler with robust fallback
   const handleGenerate = async () => {
     if (!text.trim()) {
@@ -144,60 +142,9 @@ export default function App() {
 
       const data = await response.json();
 
-      // If Gemini quota is exceeded or cloud generation encounters error
+      // Quota exceeded or cloud generation failed: read aloud with the device voice
       if (!response.ok || !data.success || data.quotaExceeded) {
-        console.warn('Gemini cloud quota reached or failed, activating seamless browser fallback...');
-        const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
-        const browserResult = await speakWithBrowser(
-          text.trim(),
-          effectiveLanguage,
-          speechRate,
-          pitchVal
-        );
-
-        const newItem: GeneratedSpeechItem = {
-          id: 'speech_' + Date.now(),
-          text: text.trim(),
-          voice: selectedVoice,
-          tone: selectedTone,
-          language: selectedLanguage,
-          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
-          speechRate,
-          pitch,
-          wavUrl: browserResult.wavUrl,
-          mp3Url: browserResult.mp3Url,
-          wavSize: browserResult.sizeWav,
-          mp3Size: browserResult.sizeMp3,
-          createdAt: Date.now(),
-        };
-
-        setCurrentAudio(newItem);
-        setFallbackActive(true);
-        setNoticeMessage(
-          '🔔 نظراً لنفاذ الحصة المجانية السحابية لنموذج Gemini (10 طلبات يومياً على الحساب المجاني)، تم توليد الصوت بنجاح وتشغيله عبر المحرك الصوتي الداخلي دون انقطاع، ويمكنك تحميل ملفات MP3 و WAV كالمعتاد.'
-        );
-
-        // Save metadata in history
-        const updatedHistory = [newItem, ...history.slice(0, 19)];
-        setHistory(updatedHistory);
-        localStorage.setItem(
-          'sawtak_history_meta',
-          JSON.stringify(
-            updatedHistory.map((item) => ({
-              ...item,
-              wavUrl: '',
-              mp3Url: '',
-            }))
-          )
-        );
-
-        setTimeout(() => {
-          const playerElement = document.getElementById('audio-player-section');
-          if (playerElement) {
-            playerElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }
-        }, 100);
-
+        runLiveFallback(effectiveLanguage, data.quotaExceeded);
         return;
       }
 
@@ -248,42 +195,8 @@ export default function App() {
         }
       }, 100);
     } catch (err: any) {
-      console.warn('Network or server error, attempting in-browser TTS fallback...', err);
-      try {
-        const pitchVal = pitch === 'deep' ? 0.8 : pitch === 'bright' ? 1.2 : 1.0;
-        const browserResult = await speakWithBrowser(
-          text.trim(),
-          effectiveLanguage,
-          speechRate,
-          pitchVal
-        );
-
-        const newItem: GeneratedSpeechItem = {
-          id: 'speech_' + Date.now(),
-          text: text.trim(),
-          voice: selectedVoice,
-          tone: selectedTone,
-          language: selectedLanguage,
-          detectedLang: `${detectedLanguage.nameAr} ${detectedLanguage.flag} (محرك احتياطي)`,
-          speechRate,
-          pitch,
-          wavUrl: browserResult.wavUrl,
-          mp3Url: browserResult.mp3Url,
-          wavSize: browserResult.sizeWav,
-          mp3Size: browserResult.sizeMp3,
-          createdAt: Date.now(),
-        };
-
-        setCurrentAudio(newItem);
-        setFallbackActive(true);
-        setNoticeMessage(
-          '🔔 تم التوليد بنجاح عبر المحرك الصوتي الداخلي. يمكنك الاستماع والتحميل بصيغتي MP3 و WAV دون توقف.'
-        );
-      } catch (fallbackErr) {
-        setErrorMessage(
-          'تعذر الاتصال بخدمة التوليد الصوتي السحابية. يرجى التحقق من النص والمحاولة مجدداً.'
-        );
-      }
+      console.warn('Network or server error, using device voice...', err);
+      runLiveFallback(effectiveLanguage, false);
     } finally {
       setIsGenerating(false);
     }
@@ -343,7 +256,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>مدعوم بتقنية Gemini TTS مع محرك احتياطي غير محدود</span>
+              <span>صوت عالي الجودة مع قراءة احتياطية بصوت الجهاز</span>
             </div>
 
             {fallbackActive && (
